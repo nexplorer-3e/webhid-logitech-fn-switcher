@@ -8,7 +8,7 @@ So chromium is a dependency.
 
 ## todo
 
-- [ ] deploy to cloudflare
+- [x] ~~deploy to cloudflare~~ done. https://logiFnSwitch.pages.dev (ignoreCaseWouldBeOkay)
 - [ ] ios reimplement
 - [ ] (w/ localstorage) make the input box presist when you need to open the page again
 - [ ] allow user to submit their device info & payload
