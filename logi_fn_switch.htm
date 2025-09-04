@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Logitech Keyboard Function Key Config</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 5%;
+        }
+
+        input, button, pre {
+            display: block;
+
+            width: 100%;
+            box-sizing: border-box;
+            /* width 100% companion */
+            max-width: 480px;
+
+            /* mobile device eye candy */
+            margin: 10px auto;
+            padding: 8px;
+            height: 44px;
+
+            /* rounded corner */
+            border-radius: 999px;
+            border-width: thin;
+        }
+
+        input {
+            text-align: center;
+            /* rounded corner companion */
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Logitech Keyboard Fn-Key Configuration</h1>
+
+    <p>
+        This is a simple demo using WebHID to switch Fn-key.</br>
+        Connect your keyboard (K380 by default), then click buttons below to
+        set Fn-key as default.</br>
+        I collected some productId in case of your keyboard is not k380.
+        These logi kbd should also supported.</br>
+        Click "Log Known Device Presets" to see if your device in the presets.</br>
+    </p>
+
+
+    <button id="logPresets">Log Known Device Presets</button>
+    <p>
+        If none are your case, fill yours in the correct input textbox.
+    </p>
+    <input id="vendorIdInput"
+        placeholder="vendorId, 0x046d if empty (you may not needed to change this for Logi device)"></input>
+
+    <input id="productIdInput" placeholder="productId, 0xb342 if empty"></input>
+
+    <button id="connectButton">Connect to Device</button>
+    <button id="setFnButton">Set Fn-Key default</button>
+    <button id="unsetFnButton">Unset Fn-Key default</button>
+
+    <p>
+        You may want to send your custom payload if you specify your productId. <br />
+        Note that custom payload accepts an
+        <a
+            href="https://docs.kernel.org/hid/hidraw.html#:~:text=a%20SET_REPORT%20transfer.-,The%20first%20byte,-of%20the%20buffer">
+            <code>HIDRAW send</code>-style array</a>:
+        the first element is outputDescriptor,
+        followed by the real payload being sent.
+        This is <em>different</em> from the
+        <a href="https://developer.mozilla.org/en-US/docs/Web/API/HIDDevice/sendReport#parameters">
+            <code>HIDDevice.sendReport</code></a>. </br>
+        tldr: concat the argument of HIDDevice.sendReport, then fill in the input.
+    </p>
+    <label for="payloadInput">Custom Payload (list of numbers separated by comma):</label>
+    <input id="payloadInput" placeholder="0x10, 0xff, 0x0b, 0x1e, 0x00, 0x00, 0x00"></input>
+    <button id="configureButton">Configure Fn-Keys</button>
+    <button id="disconnectButton">Disconnect Device</button>
+
+    <p>Logs will display as follows.</p>
+    <pre id="log"></pre>
+
+    <script>
+        const logPresets = document.getElementById('logPresets');
+        const connectButton = document.getElementById('connectButton');
+        const disconnectButton = document.getElementById('disconnectButton');
+        const setFnButton = document.getElementById('setFnButton');
+        const unsetFnButton = document.getElementById('unsetFnButton');
+        const vendorIdInput = document.getElementById('vendorIdInput');
+        const productIdInput = document.getElementById('productIdInput');
+        const payloadInput = document.getElementById('payloadInput');
+        const configureButton = document.getElementById('configureButton');
+        const logPre = document.getElementById('log');
+        // FIXME: better data struct
+        const preset = [[
+                0xb342,
+                [0x10, 0xff, 0x0b, 0x1e, 0x00, 0x00, 0x00],
+                "K380",
+            ], [
+                0xb33d,
+                [0x10, 0xff, 0x0b, 0x1e, 0x00, 0x00, 0x00],
+                "K480alt2",
+            ], [
+                0xb330,
+                [0x10, 0xff, 0x08, 0x1c, 0x00, 0x00, 0x00],
+                "K480",
+            ], [
+                0xb33c,
+                [0x10, 0xff, 0x08, 0x1c, 0x00, 0x00, 0x00],
+                "K480alt",
+            ], [
+                0xb319,
+                [0x10, 0xFF, 0x06, 0x15, 0x00, 0x00, 0x00],
+                "K810",
+            ], [
+                0xb317,
+                [0x10, 0xff, 0x06, 0x14, 0x00, 0x00, 0x00],
+                "K811",
+        ]]
+        const LogiVendorId = 0x046d;
+        let device;
+
+        async function isDeviceConnected() {
+            if (!device || !device.opened) {
+                logPre.textContent = 'Please connect to the device first.\n';
+                return 0;
+            }
+            return 1;
+        }
+
+        async function doSendReport(outputDescriptor, data) {
+            try {
+                await device.sendReport(outputDescriptor, data);
+                logPre.textContent += 'Configuration report sent.\n';
+                logPre.textContent += 'You may want to disconnect device by clicking the disconnect button.\n';
+            } catch (error) {
+                logPre.textContent += `An error occurred: ${error}\n`;
+            }
+        }
+
+        async function setFn(flag) {
+            if (!isDeviceConnected()) return;
+
+            // find match productId in presets
+            let payload;
+            for (const el of preset) {
+                if (el[0] === device.productId) {
+                    payload = el[1];
+                    break;
+                }
+            }
+
+            // no match
+            if (!payload) {
+                logPre.textContent = 'Your productId is not in the preset.\n';
+                logPre.textContent += 'This button is not available.\n';
+                return;
+            }
+            
+            // set the 5th byte to 0x1 if not set fn
+            // idk how to do deep copy so else is necessary
+            if (flag) payload[4] = 0;
+            else payload[4] = 1;
+
+            // send
+            const outDesc = payload[0];
+            const data = new Uint8Array(payload.slice(1));
+            await doSendReport(outDesc, data);
+        }
+
+        logPresets.addEventListener('click', () => logPre.textContent = JSON.stringify(preset, null, 4));
+
+        connectButton.addEventListener('click', async () => {
+            try {
+                // K380 value as default if undefined
+                const vendorId = vendorIdInput.value ? parseInt(vendorIdInput.value) : LogiVendorId;
+                const productId = productIdInput.value ? parseInt(productIdInput.value) : 0xb342;
+
+                // Request permission to access the HID device.
+                // 0xff00 from my device & https://github.com/keighrim/k810fn/blob/master/win/k810fn/k810fnCLI.cpp
+                // this may be a spec of logi hid++ for keyboards, my mouse seemed w/o this. idk
+                const devices = await navigator.hid.requestDevice({
+                    filters: [{ vendorId, productId }, {vendorId: LogiVendorId, usage: 1, usagePage: 0xff00}],
+                });
+
+                if (!devices || devices.length === 0) {
+                    logPre.textContent += 'No device selected.\n';
+                    return;
+                }
+
+                // Open the device.
+                device = devices[0];
+                await device.open();
+                logPre.textContent += `Device opened: ${device.productName} productId: ${device.productId}\n`;
+            } catch (error) {
+                logPre.textContent += `An error occurred: ${error}\n`;
+            }
+        });
+
+        setFnButton.addEventListener('click', async () => {
+            await setFn(1);
+        })
+
+        unsetFnButton.addEventListener('click', async () => {
+            await setFn(0);
+        })
+
+        configureButton.addEventListener('click', async () => {
+            try {
+                // placeholder is valid payload to set Fn-key default on K380
+                let payload = payloadInput.placeholder.split(",").map(num => parseInt(num));
+                if (payloadInput.value) {
+                    payload = payloadInput.value.split(",").map(num => parseInt(num));
+                }
+
+                if (!isDeviceConnected()) return;
+
+                const outDesc = payload[0];
+                const data = new Uint8Array(payload.slice(1));
+                await doSendReport(outDesc, data);
+            } catch (error) {
+                logPre.textContent += `An error occurred: ${error}\n`;
+            }
+        });
+
+        disconnectButton.addEventListener('click', async () => {
+            if (!isDeviceConnected()) return;
+            try {
+                await device.close();
+                logPre.textContent += 'Device disconnected.\n';
+            } catch (error) {
+                logPre.textContent += `An error occurred: ${error}\n`;
+            }
+        });
+    </script>
+
+</body>
+
+</html>
